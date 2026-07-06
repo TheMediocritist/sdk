@@ -1,4 +1,8 @@
 #include "audio.h"
+#if LILKA_VERSION == 3
+#    include <Wire.h>
+#    include "es8311.h"
+#endif
 #include "config.h"
 #include "ping.h"
 #include "Preferences.h"
@@ -35,12 +39,38 @@ void welcomePlay(void* arg) {
 }
 
 void Audio::begin() {
+#if LILKA_VERSION == 3
+    // ES8311 codec: audio goes I2S (with MCLK) -> codec -> speaker amp.
+    // Pin muxing is handled by the I2S driver of whoever plays audio
+    // (ESP8266Audio / liltracker), including the MCLK output.
+    Wire.begin(LILKA_I2C_SDA, LILKA_I2C_SCL);
+    es8311.begin();
+    // Amp stays OFF until something actually plays (see setAmpEnabled) -
+    // enabling it at boot lets the DAC power-up transient pop the speaker.
+    pinMode(LILKA_AUDIO_PA, OUTPUT);
+    digitalWrite(LILKA_AUDIO_PA, LOW);
+#else
     initPins();
 
     I2S.setAllPins(LILKA_I2S_BCLK, LILKA_I2S_LRCK, LILKA_I2S_DOUT, LILKA_I2S_DOUT, -1);
+#endif
 
 #ifndef LILKA_NO_AUDIO_HELLO
     if (getStartupSoundEnabled()) playStartupSound();
+#endif
+}
+
+void Audio::setAmpEnabled(bool enable) {
+#if LILKA_VERSION == 3
+    if (enable) {
+        // Let the DAC output settle after I2S start before opening the amp.
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+        digitalWrite(LILKA_AUDIO_PA, HIGH);
+    } else {
+        digitalWrite(LILKA_AUDIO_PA, LOW);
+    }
+#else
+    (void)enable;
 #endif
 }
 

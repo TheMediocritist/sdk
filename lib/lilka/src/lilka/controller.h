@@ -114,8 +114,17 @@ public:
     /// lilka::controller.setAutoRepeat(lilka::Button::UP, 5, 500);
     /// \endcode
     void setAutoRepeat(Button button, uint32_t rate, uint32_t delay);
+    /// Програмно "натиснути" кнопку на вказану тривалість (мс).
+    /// Використовується серійною клавіатурою (LILKA_SERIAL_CONTROLLER).
+    void injectButtonPress(Button button, uint32_t durationMs = 150);
+    /// Увімкнути/вимкнути серійну клавіатуру. Додатки, які самі читають
+    /// Serial (наприклад, Live Lua), мають вимикати її на час роботи.
+    void setSerialInputEnabled(bool enabled);
 
 private:
+    volatile uint32_t injectedUntil[Button::COUNT] = {0};
+    volatile bool serialInputEnabled = true;
+    void pollSerialInput();
     // Input task FreeRTOS semaphore
     SemaphoreHandle_t semaphore;
     void inputTask();

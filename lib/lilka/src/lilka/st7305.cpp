@@ -33,7 +33,7 @@ void ST7305::begin() {
     esp_lcd_panel_io_spi_config_t iocfg = {};
     iocfg.dc_gpio_num = dc_;
     iocfg.cs_gpio_num = cs_;
-    iocfg.pclk_hz = 80 * 1000 * 1000;
+    iocfg.pclk_hz = 60 * 1000 * 1000;
     iocfg.lcd_cmd_bits = 8;
     iocfg.lcd_param_bits = 8;
     iocfg.spi_mode = 0;

@@ -38,6 +38,11 @@ public:
     static uint32_t getStartupSoundEnabled();
     /// Вмикає чи вимикає звук вітання
     static void setStartupSoundEnabled(bool enable);
+    /// Вмикає/вимикає підсилювач динаміка (якщо плата має пін керування).
+    /// Гучномовець слід вмикати ПІСЛЯ старту I2S (щоб перехідний процес
+    /// ЦАП не потрапив у ввімкнений підсилювач) і вимикати після зупинки.
+    /// На платах без піна керування - нічого не робить.
+    static void setAmpEnabled(bool enable);
 };
 
 extern Audio audio;

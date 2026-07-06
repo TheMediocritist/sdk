@@ -25,7 +25,7 @@ static void drawMonoCanvasTran(
 
 namespace lilka {
 
-#define MENU_HEIGHT 5
+#define MENU_HEIGHT 9
 
 #define MIN(a, b)   ((a) < (b) ? (a) : (b))
 
@@ -214,7 +214,7 @@ void Menu::draw(Arduino_GFX* canvas) {
             if (cursor == i) {
                 memcpy(iconImage->pixels, *icon, sizeof(menu_icon_t));
                 // Transform t = Transform().rotate(millis() * 30);
-                Transform t = Transform().rotate(sin((millis() - lastCursorMove) * PI / 1000) * 30);
+                Transform t = Transform().rotate(sin((millis() - lastCursorMove) * PI / 1000) * 10);
                 iconCanvas->fillScreen(bgColor);
                 iconCanvas->drawImageTransformed(iconImage, 12, 12, t);
                 drawMonoCanvasTran(

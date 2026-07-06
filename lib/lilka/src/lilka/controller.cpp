@@ -41,6 +41,9 @@ Controller::Controller() : state{}, semaphore(xSemaphoreCreateRecursiveMutex()) 
 
 void Controller::inputTask() {
     while (1) {
+#ifdef LILKA_SERIAL_CONTROLLER
+        pollSerialInput();
+#endif
         {
             AcquireController acquire(semaphore);
             for (int i = 0; i < Button::COUNT; i++) {
@@ -50,15 +53,12 @@ void Controller::inputTask() {
                 }
                 _StateButtons& buttons = *reinterpret_cast<_StateButtons*>(&state);
                 ButtonState* buttonState = &buttons[i];
-                if (pins[i] < 0) {
-                    continue;
-                }
                 if (millis() - buttonState->time < LILKA_DEBOUNCE_TIME) {
                     continue;
                 }
 
-                // Is the button being held down?
-                bool pressed = !digitalRead(pins[i]);
+                // Is the button being held down? (physical pin OR serial injection)
+                bool pressed = (pins[i] >= 0 && !digitalRead(pins[i])) || (millis() < injectedUntil[i]);
                 // Should the button repeat right now?
                 bool shouldRepeat = buttonState->nextRepeatTime && millis() >= buttonState->nextRepeatTime;
 
@@ -180,5 +180,104 @@ void Controller::setAutoRepeat(Button button, uint32_t rate, uint32_t delay) {
 }
 
 Controller controller;
+
+
+void Controller::injectButtonPress(Button button, uint32_t durationMs) {
+    if (button < 0 || button >= Button::COUNT) return;
+    injectedUntil[button] = millis() + durationMs;
+#ifdef LILKA_SERIAL_CONTROLLER
+    serial.log("[serial-kbd] button %d pressed for %lu ms", (int)button, (unsigned long)durationMs);
+#endif
+}
+
+void Controller::setSerialInputEnabled(bool enabled) {
+    serialInputEnabled = enabled;
+#ifdef LILKA_SERIAL_CONTROLLER
+    serial.log("[serial-kbd] %s", enabled ? "enabled" : "disabled (app owns serial)");
+#endif
+}
+
+#ifdef LILKA_SERIAL_CONTROLLER
+// Map serial-monitor keys to buttons so a laptop keyboard can drive the UI.
+// WASD or arrow keys = d-pad; Enter/Space = A; B/Backspace = B;
+// Q = SELECT, E = START, C = C, V = D.
+void Controller::pollSerialInput() {
+    if (!serialInputEnabled) {
+        return; // an app (e.g. Live Lua) owns the serial port right now
+    }
+    while (Serial.available() > 0) {
+        int c = Serial.read();
+        if (c == 0x1B) {
+            // ANSI escape: ESC [ A/B/C/D (arrow keys). Best-effort, the
+            // remaining bytes usually arrive in the same burst.
+            uint32_t start = millis();
+            while (Serial.available() < 2 && millis() - start < 5) {
+            }
+            if (Serial.available() >= 2 && Serial.read() == '[') {
+                switch (Serial.read()) {
+                    case 'A':
+                        injectButtonPress(Button::UP);
+                        break;
+                    case 'B':
+                        injectButtonPress(Button::DOWN);
+                        break;
+                    case 'C':
+                        injectButtonPress(Button::RIGHT);
+                        break;
+                    case 'D':
+                        injectButtonPress(Button::LEFT);
+                        break;
+                }
+            }
+            continue;
+        }
+        switch (c) {
+            case 'w':
+            case 'W':
+                injectButtonPress(Button::UP);
+                break;
+            case 's':
+            case 'S':
+                injectButtonPress(Button::DOWN);
+                break;
+            case 'a':
+            case 'A':
+                injectButtonPress(Button::LEFT);
+                break;
+            case 'd':
+            case 'D':
+                injectButtonPress(Button::RIGHT);
+                break;
+            case '\r':
+            case '\n':
+            case ' ':
+                injectButtonPress(Button::A);
+                break;
+            case 'b':
+            case 'B':
+            case 0x08:
+            case 0x7F:
+                injectButtonPress(Button::B);
+                break;
+            case 'q':
+            case 'Q':
+                injectButtonPress(Button::SELECT);
+                break;
+            case 'e':
+            case 'E':
+                injectButtonPress(Button::START);
+                break;
+            case 'c':
+            case 'C':
+                injectButtonPress(Button::C);
+                break;
+            case 'v':
+            case 'V':
+                injectButtonPress(Button::D);
+                break;
+        }
+    }
+}
+#endif // LILKA_SERIAL_CONTROLLER
 
 } // namespace lilka

@@ -161,12 +161,17 @@ const uint8_t LILKA_EXT_PINS[] = {LILKA_P3, LILKA_P4, LILKA_P5, LILKA_P6, LILKA_
 #    define LILKA_BATTERY_ADC            4
 #    define LILKA_BATTERY_ADC_FUNC(name) adc1_##name
 #    define LILKA_BATTERY_ADC_CHANNEL    ADC1_CHANNEL_3
+// Серійна клавіатура: клавіші з pio device monitor стають кнопками
+#    define LILKA_SERIAL_CONTROLLER      1
 // Buzzer: немає. Звук піде через кодек ES8311 (TODO).
 #    define LILKA_BUZZER                 -1
-// I2S -> ES8311 codec (без ініціалізації кодека - тиша, але компілюється)
+// I2S -> ES8311 codec
 #    define LILKA_I2S_BCLK               9
 #    define LILKA_I2S_DOUT               8
 #    define LILKA_I2S_LRCK               45
+#    define LILKA_I2S_MCLK               16 // codec needs 256*fs master clock
+#    define LILKA_AUDIO_PA               46 // speaker amp enable, active high
+#    define LILKA_ES8311_ADDR            0x18
 // Роз'єм розширення: вільні GPIO (перевірити з розпіновкою Waveshare)
 #    define LILKA_P3                     1
 #    define LILKA_P4                     2

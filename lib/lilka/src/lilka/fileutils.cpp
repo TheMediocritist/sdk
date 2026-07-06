@@ -6,7 +6,11 @@
 
 namespace lilka {
 FileUtils::FileUtils() : sdMutex(xSemaphoreCreateMutex()) {
+    #if LILKA_VERSION == 3
+    sdfs = &SD_MMC;
+#else
     sdfs = &SD;
+#endif
     spiffs = &SPIFFS;
 }
 
@@ -45,7 +49,32 @@ bool FileUtils::initSD() {
     // check if LILKA_SDROOT pathable, if not perform init
     serial.log("initializing SD card at %d Hz", sdFrequency);
 
-#if LILKA_SDCARD_CS < 0
+#if LILKA_VERSION == 3
+    // SDMMC 1-bit bus (not SPI). Pins from config.h.
+    (void)sdFrequency;
+    SD_MMC.setPins(LILKA_SDMMC_CLK, LILKA_SDMMC_CMD, LILKA_SDMMC_D0);
+    bool init_result = SD_MMC.begin(LILKA_SD_ROOT, true /* 1-bit */, false, SDMMC_FREQ_DEFAULT);
+    sdcard_type_t cardType = sdfs->cardType();
+    if (!init_result) {
+        sdfs->end();
+        xSemaphoreGive(sdMutex);
+        return false;
+    }
+    if (cardType == CARD_SD || cardType == CARD_SDHC) {
+        serial.log(
+            "card type: %s, card size: %s",
+            cardType == CARD_SD ? "SD" : "SDHC",
+            getHumanFriendlySize(sdfs->totalBytes()).c_str()
+        );
+        xSemaphoreGive(sdMutex);
+        return true;
+    } else {
+        serial.err("unknown SD card type: %d", cardType);
+        sdfs->end();
+        xSemaphoreGive(sdMutex);
+        return false;
+    }
+#elif LILKA_SDCARD_CS < 0
     serial.err("SD init failed: no CS pin");
 #else
     // clang-format off

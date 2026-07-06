@@ -2,6 +2,9 @@
 #include <ff.h>
 #include <SPIFFS.h>
 #include <SD.h>
+#if LILKA_VERSION == 3
+#    include <SD_MMC.h>
+#endif
 #include <dirent.h>
 #include <sd_diskio.h>
 
@@ -154,7 +157,11 @@ public:
 private:
     SemaphoreHandle_t sdMutex = NULL;
     SPIFFSFS* spiffs;
+#if LILKA_VERSION == 3
+    fs::SDMMCFS* sdfs; // SDMMC 1-bit on this board, not SPI
+#else
     SDFS* sdfs;
+#endif
 };
 
 /// Екземпляр класу `FileUtils`, який можна використовувати для роботи з дисплеєм.
