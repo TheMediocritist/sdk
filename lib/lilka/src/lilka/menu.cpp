@@ -37,6 +37,7 @@ Menu::Menu(const String& title) {
     this->iconImage = new Image(menu_icon_width, menu_icon_height, bgColor, menu_icon_width / 2, menu_icon_height / 2);
     this->iconCanvas = new Canvas(menu_icon_width, menu_icon_height);
     this->lastCursorMove = millis();
+    this->lastCursorMoveUs = micros();
     this->button = Button::COUNT;
     this->activationButtons.push_back(Button::A);
     this->firstRender = -1;
@@ -98,7 +99,7 @@ void Menu::update() {
         if (cursor == items.size() - 1) cursor = 0;
         else cursor = (cursor + MENU_HEIGHT) >= items.size() - 1 ? items.size() - 1 : (cursor + MENU_HEIGHT);
     }
-    if (cursorLastPos != cursor) lastCursorMove = millis();
+    if (cursorLastPos != cursor) lastCursorMoveUs = micros();
     if (cursor < scroll) {
         scroll = cursor;
     } else if (cursor > scroll + MENU_HEIGHT - 1) {
@@ -214,7 +215,9 @@ void Menu::draw(Arduino_GFX* canvas) {
             if (cursor == i) {
                 memcpy(iconImage->pixels, *icon, sizeof(menu_icon_t));
                 // Transform t = Transform().rotate(millis() * 30);
-                Transform t = Transform().rotate(sin((millis() - lastCursorMove) * PI / 1000) * 10);
+                // Transform t = Transform().rotate(sin((micros()/1000.0f - lastCursorMove) * PI / 1000) * 30);
+                float elapsedMs = (micros() - lastCursorMoveUs) * 0.001f;
+                Transform t = Transform().rotate(sinf(elapsedMs * PI / 1000.0f) * 3.0f);
                 iconCanvas->fillScreen(bgColor);
                 iconCanvas->drawImageTransformed(iconImage, 12, 12, t);
                 drawMonoCanvasTran(
@@ -268,7 +271,7 @@ void Menu::draw(Arduino_GFX* canvas) {
             // bar thresholds to white - so render black-on-white.
             marquee.fillScreen(lilka::colors::White);
             marquee.setFont(FONT_10x20);
-            marquee.setCursor(calculateMarqueeShift(millis() - lastCursorMove, nameWidth - widthAvailable, 50), 20);
+            marquee.setCursor(calculateMarqueeShift(micros() - lastCursorMoveUs, nameWidth - widthAvailable, 50), 20);
             marquee.setTextColor(lilka::colors::Black);
             marquee.println(items[i].title);
             drawMonoCanvasTran(
