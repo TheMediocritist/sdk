@@ -11,93 +11,158 @@ namespace lilka {
 template class GFX<Display>;
 template class GFX<Canvas>;
 
-#if LILKA_VERSION == 1
-Arduino_ESP32SPI displayBus(LILKA_DISPLAY_DC, LILKA_DISPLAY_CS, LILKA_SPI_SCK, LILKA_SPI_MOSI);
-#else
-// Arduino_ESP32SPI displayBus(
-//     LILKA_DISPLAY_DC, LILKA_DISPLAY_CS, LILKA_SPI_SCK, LILKA_SPI_MOSI, LILKA_SPI_MISO, SPI1_NUM, true
-// );
-Arduino_HWSPI displayBus(
-    LILKA_DISPLAY_DC, LILKA_DISPLAY_CS, LILKA_SPI_SCK, LILKA_SPI_MOSI, LILKA_SPI_MISO, &SPI1, true
-);
-#endif
+static ST7305 rlcdPanel; // pins/dimensions from config.h
 
-Display::Display() :
-    Arduino_ST7789(
-        // &displayBus, LILKA_DISPLAY_RST, LILKA_DISPLAY_ROTATION, true, LILKA_DISPLAY_WIDTH, LILKA_DISPLAY_HEIGHT, 0, 20
-        &displayBus, LILKA_DISPLAY_RST, LILKA_DISPLAY_ROTATION, true, LILKA_DISPLAY_WIDTH, LILKA_DISPLAY_HEIGHT, 0, 20,
-        0, 20
-    ),
-    splash(default_splash),
-    rleLength(default_splash_length) {
-    // Apply rotation immediately.
-    // This is necessary because setRotation is called in begin(), so display width/height are not valid at this point.
-    // We call this so that width/height are valid as early as possible.
-    Arduino_TFT::setRotation(LILKA_DISPLAY_ROTATION);
+// ---------- MonoCanvas ----------
+
+MonoCanvas::MonoCanvas(int16_t w, int16_t h, int16_t x, int16_t y) : Arduino_Canvas_Mono(w, h, nullptr, x, y) {
 }
 
-void Display::begin() {
-    serial.log("initializing display");
-#ifdef LILKA_BREADBOARD
-    Arduino_ST7789::begin(40000000);
-#else
-    Arduino_ST7789::begin(80000000);
-#endif
-    setFont(FONT_10x20);
-    setUTF8Print(true);
-    serial.log("display ok");
-}
+void MonoCanvas::writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    // Той самий поріг біле/чорне, що і в Arduino_Canvas_Mono::writePixelPreclipped.
+    const bool white = color & 0b1000010000010000;
+    uint8_t* fb = getFramebuffer();
+    const int16_t stride = monoStride();
 
-void Display::showStartupScreen() {
-    if (splash != NULL) {
-        uint16_t row[display.width()];
-        for (int i = 0; i <= 4; i++) {
-            startWrite();
-            writeAddrWindow(0, 0, display.width(), display.height());
-            RLEDecoder decoder(static_cast<const uint8_t*>(splash), rleLength);
-            for (int y = 0; y < display.height(); y++) {
-                for (int x = 0; x < display.width(); x++) {
-                    uint16_t color;
-                    if (rleLength) {
-                        color = decoder.next();
-                    } else {
-                        color = static_cast<const uint16_t*>(splash)[y * display.width() + x];
-                    }
-                    uint16_t r = ((color >> 11) & 0x1F) << 3;
-                    uint16_t g = ((color >> 5) & 0x3F) << 2;
-                    uint16_t b = (color & 0x1F) << 3;
-                    row[x] = color565(r * i / 4, g * i / 4, b * i / 4);
-                }
-                writePixels(row, display.width());
+    if (x == 0 && w == width()) {
+        memset(fb + y * stride, white ? 0xFF : 0x00, static_cast<size_t>(h) * stride);
+        return;
+    }
+
+    const int16_t x2 = x + w - 1;
+    const int16_t firstByte = x >> 3;
+    const int16_t lastByte = x2 >> 3;
+    const uint8_t headMask = 0xFF >> (x & 7);
+    const uint8_t tailMask = 0xFF << (7 - (x2 & 7));
+
+    for (int16_t row = y; row < y + h; row++) {
+        uint8_t* line = fb + row * stride;
+        if (firstByte == lastByte) {
+            const uint8_t m = headMask & tailMask;
+            if (white) {
+                line[firstByte] |= m;
+            } else {
+                line[firstByte] &= ~m;
             }
-            endWrite();
-        }
-        delay(800);
-        for (int i = 4; i >= 0; i--) {
-            startWrite();
-            writeAddrWindow(0, 0, display.width(), display.height());
-            RLEDecoder decoder(static_cast<const uint8_t*>(splash), rleLength);
-            for (int y = 0; y < display.height(); y++) {
-                for (int x = 0; x < display.width(); x++) {
-                    uint16_t color;
-                    if (rleLength) {
-                        color = decoder.next();
-                    } else {
-                        color = static_cast<const uint16_t*>(splash)[y * display.width() + x];
-                    }
-                    uint16_t r = ((color >> 11) & 0x1F) << 3;
-                    uint16_t g = ((color >> 5) & 0x3F) << 2;
-                    uint16_t b = (color & 0x1F) << 3;
-                    row[x] = color565(r * i / 4, g * i / 4, b * i / 4);
-                }
-                writePixels(row, display.width());
+        } else {
+            if (white) {
+                line[firstByte] |= headMask;
+                if (lastByte - firstByte > 1) memset(line + firstByte + 1, 0xFF, lastByte - firstByte - 1);
+                line[lastByte] |= tailMask;
+            } else {
+                line[firstByte] &= ~headMask;
+                if (lastByte - firstByte > 1) memset(line + firstByte + 1, 0x00, lastByte - firstByte - 1);
+                line[lastByte] &= ~tailMask;
             }
-            endWrite();
         }
     }
 }
 
+void MonoCanvas::writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
+    if (w < 1 || y < 0 || y >= height()) return;
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (x + w > width()) w = width() - x;
+    if (w < 1) return;
+    writeFillRectPreclipped(x, y, w, 1, color);
+}
+
+void MonoCanvas::blitMono(MonoCanvas* src, int16_t destX, int16_t destY, int16_t w, int16_t h) {
+    if (w < 0) w = src->width();
+    if (h < 0) h = src->height();
+    if (w > src->width()) w = src->width();
+    if (h > src->height()) h = src->height();
+
+    // Швидкий шлях: повна ширина, вирівняно по байтах - memcpy рядків.
+    if (destX == 0 && w == width() && src->width() == width()) {
+        const int16_t stride = monoStride();
+        int16_t rows = h;
+        if (destY + rows > height()) rows = height() - destY;
+        if (rows <= 0 || destY < 0) return;
+        memcpy(getFramebuffer() + destY * stride, src->getFramebuffer(), static_cast<size_t>(rows) * stride);
+        return;
+    }
+
+    // Загальний шлях: попіксельно.
+    const uint8_t* sfb = src->getFramebuffer();
+    const int16_t sstride = src->monoStride();
+    for (int16_t sy = 0; sy < h; sy++) {
+        const int16_t dy = destY + sy;
+        if (dy < 0 || dy >= height()) continue;
+        const uint8_t* line = sfb + sy * sstride;
+        for (int16_t sx = 0; sx < w; sx++) {
+            const int16_t dx = destX + sx;
+            if (dx < 0 || dx >= width()) continue;
+            const bool white = line[sx >> 3] & (0x80 >> (sx & 7));
+            writePixelPreclipped(dx, dy, white ? 0xFFFF : 0x0000);
+        }
+    }
+}
+
+// ---------- Display ----------
+
+Display::Display() : MonoCanvas(LILKA_DISPLAY_WIDTH, LILKA_DISPLAY_HEIGHT), splash(NULL), rleLength(0) {
+}
+
+void Display::begin() {
+    serial.log("initializing display (ST7305 mono)");
+    presentMutex = xSemaphoreCreateMutex();
+    rlcdPanel.begin();
+    rlcdPanel.enableTESync(LILKA_DISPLAY_TE);
+    Arduino_Canvas_Mono::begin(GFX_SKIP_OUTPUT_BEGIN);
+    fillScreen(lilka::colors::Black);
+    setFont(FONT_10x20);
+    setUTF8Print(true);
+    if (autoPresentMs > 0) {
+        xTaskCreatePinnedToCore(presentTask, "present", 4096, this, 1, &presentTaskHandle, 0);
+    }
+    serial.log("display ok");
+}
+
+void Display::present() {
+    if (presentMutex == NULL) return;
+    xSemaphoreTake(presentMutex, portMAX_DELAY);
+    rlcdPanel.pushFrame(getFramebuffer());
+    xSemaphoreGive(presentMutex);
+}
+
+void Display::presentTask(void* arg) {
+    Display* self = static_cast<Display*>(arg);
+    while (true) {
+        uint32_t ms = self->autoPresentMs;
+        if (ms == 0) ms = 1000;
+        vTaskDelay(ms / portTICK_PERIOD_MS);
+        if (self->autoPresentMs > 0) {
+            self->present();
+        }
+    }
+}
+
+void Display::setAutoPresent(uint32_t intervalMs) {
+    autoPresentMs = intervalMs;
+}
+
+void Display::drawCanvas(Canvas* canvas) {
+    blitMono(canvas, canvas->x(), canvas->y());
+    present();
+}
+
+void Display::drawCanvasInterlaced(Canvas* canvas, bool odd) {
+    (void)odd; // ST7789 tearing workaround - not applicable to ST7305
+    drawCanvas(canvas);
+}
+
+void Display::showStartupScreen() {
+    fillScreen(lilka::colors::White);
+    setTextColor(lilka::colors::Black);
+    drawTextAligned("KEIRA / RLCD", width() / 2, height() / 2, ALIGN_CENTER, ALIGN_CENTER);
+    present();
+}
+
 void Display::setSplash(const void* splash, uint32_t rleLength) {
+    // RGB565 splash images are not supported on the mono display.
     this->splash = splash;
     this->rleLength = rleLength;
 }
@@ -225,50 +290,40 @@ void Display::draw16bitRGBBitmapWithTranColor(
     int16_t x, int16_t y, const uint16_t bitmap[], uint16_t transparent_color, int16_t w, int16_t h
 ) {
     // Цей cast безпечний, оскільки Arduino_GFX.draw16bitRGBBitmapWithTranColor не змінює bitmap.
-    Arduino_ST7789::draw16bitRGBBitmapWithTranColor(x, y, const_cast<uint16_t*>(bitmap), transparent_color, w, h);
+    Arduino_GFX::draw16bitRGBBitmapWithTranColor(x, y, const_cast<uint16_t*>(bitmap), transparent_color, w, h);
 }
 
 uint8_t* Display::getFont() {
     return u8g2Font;
 }
 
-void Display::drawCanvasInterlaced(Canvas* canvas, bool odd) {
-    this->startWrite();
-    for (int y = odd ? 1 : 0; y < canvas->height(); y += 2) {
-        this->writeAddrWindow(canvas->x(), canvas->y() + y, canvas->width(), 1);
-        this->writePixels(canvas->getFramebuffer() + y * canvas->width(), canvas->width());
-    }
-    this->endWrite();
-}
+
 
 void Canvas::draw16bitRGBBitmapWithTranColor(
     int16_t x, int16_t y, const uint16_t bitmap[], uint16_t transparent_color, int16_t w, int16_t h
 ) {
     // Цей cast безпечний, оскільки Arduino_GFX.draw16bitRGBBitmapWithTranColor не змінює bitmap.
-    Arduino_Canvas::draw16bitRGBBitmapWithTranColor(x, y, const_cast<uint16_t* const>(bitmap), transparent_color, w, h);
+    Arduino_GFX::draw16bitRGBBitmapWithTranColor(x, y, const_cast<uint16_t*>(bitmap), transparent_color, w, h);
 }
 
 template <typename T>
 void GFX<T>::drawCanvas(Canvas* canvas) {
-    static_cast<T*>(this)->draw16bitRGBBitmap(
-        canvas->x(), canvas->y(), canvas->getFramebuffer(), canvas->width(), canvas->height()
-    );
+    static_cast<T*>(this)->blitMono(canvas, canvas->x(), canvas->y());
 }
 
-Canvas::Canvas() : Arduino_Canvas(display.width(), display.height(), NULL) {
+Canvas::Canvas() : MonoCanvas(display.width(), display.height()) {
     setFont(u8g2_font_10x20_t_cyrillic);
     setUTF8Print(true);
     begin();
 }
 
-Canvas::Canvas(uint16_t width, uint16_t height) : Arduino_Canvas(width, height, NULL) {
+Canvas::Canvas(uint16_t width, uint16_t height) : MonoCanvas(width, height) {
     setFont(u8g2_font_10x20_t_cyrillic);
     setUTF8Print(true);
     begin();
 }
 
-Canvas::Canvas(uint16_t x, uint16_t y, uint16_t width, uint16_t height) :
-    Arduino_Canvas(width, height, NULL, x, y, 0) { // TODO: Rotation
+Canvas::Canvas(uint16_t x, uint16_t y, uint16_t width, uint16_t height) : MonoCanvas(width, height, x, y) {
     setFont(u8g2_font_10x20_t_cyrillic);
     setUTF8Print(true);
     begin();

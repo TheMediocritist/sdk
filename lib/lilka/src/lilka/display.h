@@ -3,6 +3,10 @@
 
 #include "config.h"
 #include "colors565.h"
+#include "st7305.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <Arduino_GFX_Library.h>
 #include <U8g2lib.h>
 
@@ -239,48 +243,56 @@ public:
 ///    lilka::display.print("Привіт, Лілка!");
 /// }
 /// @endcode
-class Display : public Arduino_ST7789, public GFX<Display> {
+/// Монохромний буфер з швидкими операціями заповнення та бітовим бліттингом.
+/// Базовий клас для `Display` та `Canvas`. 1 біт на піксель:
+/// 15 КБ на повноекранний буфер 400x300 замість 240 КБ RGB565.
+/// Кольори RGB565 конвертуються порогом (будь-який канал >= 50% -> білий).
+class MonoCanvas : public Arduino_Canvas_Mono {
+public:
+    MonoCanvas(int16_t w, int16_t h, int16_t x = 0, int16_t y = 0);
+    // Швидкі байтові заповнення (замість повільних попіксельних в Arduino_GFX).
+    void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override;
+    void writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override;
+    /// 1bpp бліт з іншого монохромного буфера.
+    /// @param w, h Обрізати джерело до цих розмірів (-1 = повний розмір).
+    void blitMono(MonoCanvas* src, int16_t destX, int16_t destY, int16_t w = -1, int16_t h = -1);
+    int16_t monoStride() {
+        return (width() + 7) / 8;
+    }
+};
+
+class Display : public MonoCanvas, public GFX<Display> {
 public:
     Display();
-    /// Почати роботу з дисплеєм.
-    /// \warning Цей метод викликається автоматично при виклику `lilka::begin()`.
+    /// Почати роботу з дисплеєм (ST7305 + власний буфер кадру).
     void begin();
-    /// Відобразити вітальний екран Лілки.
-    ///
-    /// Цей метод відображає зображення, встановлене за допомогою `setSplash()`.
-    /// За замовчуванням це вітальний екран Лілки.
-    ///
-    /// @note Цей метод викликається автоматично при виклику `lilka::begin()`, якщо `LILKA_NO_SPLASH` не встановлено в `true`.
-    ///
-    /// @see setSplash
     void showStartupScreen();
-    /// Встановити зображення, яке буде відображатися при запуску.
-    ///
-    /// За замовчуванням відображається вітальний екран Лілки.
-    ///
-    /// @note Якщо викликати цей метод, то вітальний екран буде відображатись навіть якщо `LILKA_NO_SPLASH` встановлено в `true`.
-    ///
-    /// Його потрібно викликати перед викликом `lilka::begin()` або не викликати взагалі.
-    /// @param splash Масив 16-бітних кольорів (5-6-5) з розміром 280*240 (або масив байтів, закодованих алгоритмом RLE, з довжиною rleLength).
-    /// @param rleLength Якщо використовується RLE-кодування, цей аргумент вказує довжину масиву splash. Зображення повинне бути згенероване за допомогою утиліти `sdk/tools/image2code` з прапорцем `--rle`.
+    /// Збережено для сумісності API; RGB565-splash не підтримується на mono.
     void setSplash(const void* splash, uint32_t rleLength = 0);
-    /// Перетворити HSV колір в 16-бітний формат.
-    ///
-    /// @param hue Тон (0-360).
-    /// @param sat Насиченість (0-100).
-    /// @param val Яскравість (0-100).
-    /// @return 16-бітний колір.
     uint16_t color565hsv(uint16_t hue, uint8_t sat, uint8_t val);
     void draw16bitRGBBitmapWithTranColor(
         int16_t x, int16_t y, const uint16_t bitmap[], uint16_t transparent_color, int16_t w, int16_t h
     );
     uint8_t* getFont();
+    /// Відобразити буфер на панелі (бліт у буфер дисплея + present).
+    void drawCanvas(Canvas* canvas);
+    /// На ST7305 черезрядкове малювання не має сенсу - просто drawCanvas.
     void drawCanvasInterlaced(Canvas* canvas, bool odd);
+    /// Виштовхнути власний буфер дисплея на панель (repack + TE + SPI).
+    void present();
+    /// Періодичний авто-present для коду, що малює прямо на дисплеї.
+    /// 0 = вимкнено. Типово 100 мс.
+    void setAutoPresent(uint32_t intervalMs);
 
 private:
+    static void presentTask(void* arg);
     const void* splash;
     uint32_t rleLength;
+    SemaphoreHandle_t presentMutex = NULL;
+    volatile uint32_t autoPresentMs = 100;
+    TaskHandle_t presentTaskHandle = NULL;
 };
+
 
 /// @see GFX
 ///
@@ -322,19 +334,11 @@ private:
 ///     }
 /// }
 /// @endcode
-class Canvas : public Arduino_Canvas, public GFX<Canvas> {
+class Canvas : public MonoCanvas, public GFX<Canvas> {
 public:
     /// Створити буфер зі стандартним розміром (який дорівнює розміру дисплею).
     Canvas();
-    /// Створити буфер з заданими розмірами.
-    /// @param w Ширина буфера.
-    /// @param h Висота буфера.
     Canvas(uint16_t w, uint16_t h);
-    /// Створити буфер з заданими розмірами та позицією.
-    /// @param x Координата X лівого верхнього кута буфера.
-    /// @param y Координата Y лівого верхнього кута буфера.
-    /// @param w Ширина буфера.
-    /// @param h Висота буфера.
     Canvas(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
     int16_t x();
     int16_t y();
@@ -343,6 +347,7 @@ public:
     );
     uint8_t* getFont();
 };
+
 
 // Dirty (and painfully slow!) workaround to calculate text width (since getTextBounds clips result to canvas width)
 // Will be superseded by https://github.com/moononournation/Arduino_GFX/pull/460

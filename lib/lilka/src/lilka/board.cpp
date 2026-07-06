@@ -37,7 +37,7 @@ void Board::disablePowerSavingMode() {
 uint8_t Board::getExtPinGPIO(uint8_t index) {
 #if LILKA_VERSION == 1
     return ExtPin::INVALID;
-#elif LILKA_VERSION == 2
+#elif LILKA_VERSION >= 2
     // TODO: hardcoded values
     if (index == 0 || index == 11) {
         return ExtPin::GND;

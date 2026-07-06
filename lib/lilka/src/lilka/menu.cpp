@@ -1,5 +1,28 @@
 #include "ui.h"
 
+
+// Mono port: composite a 1bpp canvas onto any GFX target with color-key
+// semantics. Pixels whose mono bit differs from the (thresholded) background
+// are drawn; matching pixels are skipped, like the old transparent-color draw.
+static void drawMonoCanvasTran(
+    Arduino_GFX* g, lilka::Canvas* src, int16_t destX, int16_t destY, int16_t w, int16_t h, uint16_t bgColor
+) {
+    const bool bgBit = bgColor & 0b1000010000010000;
+    const uint8_t* fb = src->getFramebuffer();
+    const int16_t stride = src->monoStride();
+    if (w > src->width()) w = src->width();
+    if (h > src->height()) h = src->height();
+    for (int16_t y = 0; y < h; y++) {
+        const uint8_t* line = fb + y * stride;
+        for (int16_t x = 0; x < w; x++) {
+            const bool bit = line[x >> 3] & (0x80 >> (x & 7));
+            if (bit != bgBit) {
+                g->writePixel(destX + x, destY + y, bit ? 0xFFFF : 0x0000);
+            }
+        }
+    }
+}
+
 namespace lilka {
 
 #define MENU_HEIGHT 5
@@ -164,9 +187,7 @@ void Menu::draw(Arduino_GFX* canvas) {
         );
         marquee.setTextColor(this->color);
         marquee.println(title);
-        canvas->draw16bitRGBBitmapWithTranColor(
-            32, 0, marquee.getFramebuffer(), bgColor, marquee.width(), marquee.height()
-        );
+        drawMonoCanvasTran(canvas, &marquee, 32, 0, marquee.width(), marquee.height(), bgColor);
     } else {
         // Text fits
         canvas->setFont(FONT_6x13);
@@ -196,13 +217,9 @@ void Menu::draw(Arduino_GFX* canvas) {
                 Transform t = Transform().rotate(sin((millis() - lastCursorMove) * PI / 1000) * 30);
                 iconCanvas->fillScreen(bgColor);
                 iconCanvas->drawImageTransformed(iconImage, 12, 12, t);
-                canvas->draw16bitRGBBitmapWithTranColor(
-                    0,
-                    itemsY + screenI * itemHeight - 20,
-                    iconCanvas->getFramebuffer(),
-                    bgColor,
-                    menu_icon_width,
-                    menu_icon_height
+                drawMonoCanvasTran(
+                    canvas, iconCanvas, 0, itemsY + screenI * itemHeight - 20, menu_icon_width, menu_icon_height,
+                    lilka::colors::White
                 );
             } else {
                 canvas->draw16bitRGBBitmapWithTranColor(
@@ -220,7 +237,8 @@ void Menu::draw(Arduino_GFX* canvas) {
         if (items[i].postfix.length()) {
             canvas->setTextSize(1);
             canvas->setFont(FONT_10x20);
-            canvas->setTextColor(this->color);
+            // Mono: the highlight bar thresholds to white, so invert cursor-row text
+            canvas->setTextColor(cursor == i ? lilka::colors::Black : this->color);
             // Calculate postfix width
             int16_t x1, y1;
             uint16_t h;
@@ -246,18 +264,16 @@ void Menu::draw(Arduino_GFX* canvas) {
         if (nameWidth > widthAvailable && cursor == i) {
             // Marquee
             Canvas marquee(widthAvailable, itemHeight);
-            marquee.fillScreen(bgColor);
+            // Mono: this marquee only exists on the cursor row, whose highlight
+            // bar thresholds to white - so render black-on-white.
+            marquee.fillScreen(lilka::colors::White);
             marquee.setFont(FONT_10x20);
             marquee.setCursor(calculateMarqueeShift(millis() - lastCursorMove, nameWidth - widthAvailable, 50), 20);
-            marquee.setTextColor(this->color);
+            marquee.setTextColor(lilka::colors::Black);
             marquee.println(items[i].title);
-            canvas->draw16bitRGBBitmapWithTranColor(
-                iconWidth,
-                itemsY + screenI * itemHeight - 20,
-                marquee.getFramebuffer(),
-                bgColor,
-                widthAvailable,
-                itemHeight
+            drawMonoCanvasTran(
+                canvas, &marquee, iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight,
+                lilka::colors::White
             );
         } else {
             // Text fits
@@ -265,7 +281,10 @@ void Menu::draw(Arduino_GFX* canvas) {
             canvas->setFont(FONT_10x20);
             canvas->setCursor(iconWidth, itemsY + screenI * itemHeight);
             canvas->setTextBound(iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight);
-            if (cursor != i) {
+            if (cursor == i) {
+                // Mono: invert against the white highlight bar
+                canvas->setTextColor(lilka::colors::Black);
+            } else if (true) {
                 canvas->setTextColor(items[i].color);
             }
             canvas->println(items[i].title);

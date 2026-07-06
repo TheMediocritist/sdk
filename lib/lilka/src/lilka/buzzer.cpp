@@ -16,6 +16,10 @@ Buzzer::Buzzer() :
 }
 
 void Buzzer::begin() {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
     // TODO: Use ledc?
 #if LILKA_VERSION < 2
     serial.err("Buzzer is not supported on this board");
@@ -31,6 +35,10 @@ void Buzzer::begin() {
 }
 
 void Buzzer::play(uint16_t frequency) {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
 #if LILKA_VERSION < 2
     serial.err("Buzzer is not supported on this board");
     return;
@@ -43,6 +51,10 @@ void Buzzer::play(uint16_t frequency) {
 }
 
 void Buzzer::play(uint16_t frequency, uint32_t duration) {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
 #if LILKA_VERSION < 2
     serial.err("Buzzer is not supported on this board");
     return;
@@ -55,6 +67,10 @@ void Buzzer::play(uint16_t frequency, uint32_t duration) {
 }
 
 void Buzzer::playMelody(const Tone* melody, uint32_t length, uint32_t tempo) {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
 #if LILKA_VERSION < 2
     serial.err("Buzzer is not supported on this board");
 #else
@@ -111,6 +127,10 @@ void Buzzer::melodyTask(void* arg) {
 }
 
 void Buzzer::stop() {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
 #if LILKA_VERSION < 2
     serial.err("Buzzer is not supported on this board");
 #else
@@ -121,6 +141,10 @@ void Buzzer::stop() {
 }
 
 void Buzzer::_stop() {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
 #if LILKA_VERSION >= 2
     noTone(LILKA_BUZZER);
 #endif
@@ -134,6 +158,10 @@ void Buzzer::_stop() {
 }
 
 void Buzzer::playDoom() {
+#if defined(LILKA_BUZZER) && (LILKA_BUZZER < 0)
+    return;
+#endif
+
     const Tone doom_e1m1[] = {
         {NOTE_E2, 8},    {NOTE_E2, 8},    {NOTE_E3, 8},   {NOTE_E2, 8},    {NOTE_E2, 8},    {NOTE_D3, 8},
         {NOTE_E2, 8},    {NOTE_E2, 8},    {NOTE_C3, 8},   {NOTE_E2, 8},    {NOTE_E2, 8},    {NOTE_AS2, 8},
