@@ -289,7 +289,12 @@ public:
     );
     uint8_t* getFont();
     /// Відобразити буфер на панелі (бліт у буфер дисплея + present).
+    /// Тримає presentMutex на весь час бліту+пушу, щоб фоновий present
+    /// ніколи не відправив напівоновлений кадр.
     void drawCanvas(Canvas* canvas);
+    /// Бліт у буфер дисплея + markDirty, БЕЗ present. Для композиторів,
+    /// які малюють кілька шарів і роблять один present в кінці кадру.
+    void blitCanvas(Canvas* canvas);
     /// На ST7305 черезрядкове малювання не має сенсу - просто drawCanvas.
     void drawCanvasInterlaced(Canvas* canvas, bool odd);
     /// Виштовхнути буфер: у Full режимі - весь кадр; у Tracked/Auto -
@@ -339,6 +344,7 @@ public:
 
 private:
     static void presentTask(void* arg);
+    void presentLocked();
     const void* splash;
     uint32_t rleLength;
     SemaphoreHandle_t presentMutex = NULL;

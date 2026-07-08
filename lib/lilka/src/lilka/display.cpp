@@ -124,6 +124,12 @@ void Display::begin() {
 void Display::present() {
     if (presentMutex == NULL) return;
     xSemaphoreTake(presentMutex, portMAX_DELAY);
+    presentLocked();
+    xSemaphoreGive(presentMutex);
+}
+
+// Push logic; caller must hold presentMutex.
+void Display::presentLocked() {
     if (dirtyMode == DirtyMode::Full || dirtyW == width()) {
         // Full push covers the "everything dirty" case at the same cost as
         // a partial push of the same area, but skips the alignment math.
@@ -136,7 +142,6 @@ void Display::present() {
     }
     // Tracked/Auto with no dirty rect: silent no-op (this is the win).
     dirtyX = dirtyY = dirtyW = dirtyH = 0;
-    xSemaphoreGive(presentMutex);
 }
 
 void Display::markDirty(int16_t x, int16_t y, int16_t w, int16_t h) {
@@ -218,12 +223,30 @@ void Display::setAutoPresent(uint32_t intervalMs) {
     autoPresentMs = intervalMs;
 }
 
+void Display::blitCanvas(Canvas* canvas) {
+    // Blit under the present mutex so a concurrent present (auto-present
+    // task or another thread) can never push a half-blitted frame.
+    if (presentMutex != NULL) xSemaphoreTake(presentMutex, portMAX_DELAY);
+    blitMono(canvas, canvas->x(), canvas->y());
+    if (presentMutex != NULL) xSemaphoreGive(presentMutex);
+    if (dirtyMode != DirtyMode::Full) {
+        markDirty(canvas->x(), canvas->y(), canvas->width(), canvas->height());
+    }
+}
+
 void Display::drawCanvas(Canvas* canvas) {
+    // Blit + present as one atomic unit under the mutex.
+    if (presentMutex == NULL) {
+        blitMono(canvas, canvas->x(), canvas->y());
+        return;
+    }
+    xSemaphoreTake(presentMutex, portMAX_DELAY);
     blitMono(canvas, canvas->x(), canvas->y());
     if (dirtyMode != DirtyMode::Full) {
         markDirty(canvas->x(), canvas->y(), canvas->width(), canvas->height());
     }
-    present();
+    presentLocked();
+    xSemaphoreGive(presentMutex);
 }
 
 void Display::drawCanvasInterlaced(Canvas* canvas, bool odd) {
