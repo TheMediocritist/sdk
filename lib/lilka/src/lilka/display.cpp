@@ -124,8 +124,82 @@ void Display::begin() {
 void Display::present() {
     if (presentMutex == NULL) return;
     xSemaphoreTake(presentMutex, portMAX_DELAY);
-    rlcdPanel.pushFrame(getFramebuffer());
+    if (dirtyMode == DirtyMode::Full || dirtyW == width()) {
+        // Full push covers the "everything dirty" case at the same cost as
+        // a partial push of the same area, but skips the alignment math.
+        rlcdPanel.pushFrame(getFramebuffer());
+    } else if (dirtyW > 0 && dirtyH > 0) {
+        int16_t x = dirtyX, y = dirtyY, w = dirtyW, h = dirtyH;
+        int bx, by, bw, bh;
+        rlcdPanel.alignRectToBlocks(x, y, w, h, bx, by, bw, bh);
+        rlcdPanel.pushPartial(getFramebuffer(), bx, by, bw, bh);
+    }
+    // Tracked/Auto with no dirty rect: silent no-op (this is the win).
+    dirtyX = dirtyY = dirtyW = dirtyH = 0;
     xSemaphoreGive(presentMutex);
+}
+
+void Display::markDirty(int16_t x, int16_t y, int16_t w, int16_t h) {
+    if (dirtyMode == DirtyMode::Full) return;
+    // Clip to screen.
+    int16_t x2 = x + w, y2 = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x2 > width()) x2 = width();
+    if (y2 > height()) y2 = height();
+    if (x2 <= x || y2 <= y) return;
+    if (dirtyW == 0) {
+        dirtyX = x;
+        dirtyY = y;
+        dirtyW = x2 - x;
+        dirtyH = y2 - y;
+    } else {
+        // Union with existing rect.
+        int16_t ux = dirtyX < x ? dirtyX : x;
+        int16_t uy = dirtyY < y ? dirtyY : y;
+        int16_t ux2 = (dirtyX + dirtyW) > x2 ? (dirtyX + dirtyW) : x2;
+        int16_t uy2 = (dirtyY + dirtyH) > y2 ? (dirtyY + dirtyH) : y2;
+        dirtyX = ux;
+        dirtyY = uy;
+        dirtyW = ux2 - ux;
+        dirtyH = uy2 - uy;
+    }
+}
+
+bool Display::getDirtyRect(int16_t* x, int16_t* y, int16_t* w, int16_t* h) const {
+    if (dirtyW == 0) return false;
+    if (x) *x = dirtyX;
+    if (y) *y = dirtyY;
+    if (w) *w = dirtyW;
+    if (h) *h = dirtyH;
+    return true;
+}
+
+void Display::clearDirty() {
+    dirtyX = dirtyY = dirtyW = dirtyH = 0;
+}
+
+void Display::writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    MonoCanvas::writeFillRectPreclipped(x, y, w, h, color);
+    if (dirtyMode == DirtyMode::Auto) {
+        markDirty(x, y, w, h);
+    }
+}
+
+void Display::writePixelPreclipped(int16_t x, int16_t y, uint16_t color) {
+    MonoCanvas::writePixelPreclipped(x, y, color);
+    if (dirtyMode == DirtyMode::Auto) {
+        markDirty(x, y, 1, 1);
+    }
+}
+
+void Display::fillScreenTracked(uint16_t color) {
+    if (dirtyMode == DirtyMode::Full) {
+        fillScreen(color);
+    }
+    // In Tracked/Auto: no-op. Caller is opting out of "clear every frame";
+    // they'll draw over their dirty regions themselves.
+    (void)color;
 }
 
 void Display::presentTask(void* arg) {
@@ -146,6 +220,9 @@ void Display::setAutoPresent(uint32_t intervalMs) {
 
 void Display::drawCanvas(Canvas* canvas) {
     blitMono(canvas, canvas->x(), canvas->y());
+    if (dirtyMode != DirtyMode::Full) {
+        markDirty(canvas->x(), canvas->y(), canvas->width(), canvas->height());
+    }
     present();
 }
 

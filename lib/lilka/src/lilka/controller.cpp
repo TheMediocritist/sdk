@@ -111,6 +111,9 @@ void Controller::resetState() {
         ButtonState* buttonState = &buttons[i];
         buttonState->justPressed = false;
         buttonState->justReleased = false;
+        // Also cancel any pending serial-keyboard injection so a button
+        // press that launched an app doesn't bleed into the new app.
+        injectedUntil[i] = 0;
     }
 }
 
@@ -182,18 +185,18 @@ void Controller::setAutoRepeat(Button button, uint32_t rate, uint32_t delay) {
 Controller controller;
 
 
+void Controller::setSerialInputEnabled(bool enabled) {
+    serialInputEnabled = enabled;
+#ifdef LILKA_SERIAL_CONTROLLER
+    serial.log("[serial-kbd] %s", enabled ? "enabled" : "disabled (app owns serial)");
+#endif
+}
+
 void Controller::injectButtonPress(Button button, uint32_t durationMs) {
     if (button < 0 || button >= Button::COUNT) return;
     injectedUntil[button] = millis() + durationMs;
 #ifdef LILKA_SERIAL_CONTROLLER
     serial.log("[serial-kbd] button %d pressed for %lu ms", (int)button, (unsigned long)durationMs);
-#endif
-}
-
-void Controller::setSerialInputEnabled(bool enabled) {
-    serialInputEnabled = enabled;
-#ifdef LILKA_SERIAL_CONTROLLER
-    serial.log("[serial-kbd] %s", enabled ? "enabled" : "disabled (app owns serial)");
 #endif
 }
 
@@ -208,76 +211,32 @@ void Controller::pollSerialInput() {
     while (Serial.available() > 0) {
         int c = Serial.read();
         if (c == 0x1B) {
-            // ANSI escape: ESC [ A/B/C/D (arrow keys). Best-effort, the
-            // remaining bytes usually arrive in the same burst.
             uint32_t start = millis();
             while (Serial.available() < 2 && millis() - start < 5) {
             }
             if (Serial.available() >= 2 && Serial.read() == '[') {
                 switch (Serial.read()) {
-                    case 'A':
-                        injectButtonPress(Button::UP);
-                        break;
-                    case 'B':
-                        injectButtonPress(Button::DOWN);
-                        break;
-                    case 'C':
-                        injectButtonPress(Button::RIGHT);
-                        break;
-                    case 'D':
-                        injectButtonPress(Button::LEFT);
-                        break;
+                    case 'A': injectButtonPress(Button::UP); break;
+                    case 'B': injectButtonPress(Button::DOWN); break;
+                    case 'C': injectButtonPress(Button::RIGHT); break;
+                    case 'D': injectButtonPress(Button::LEFT); break;
                 }
             }
             continue;
         }
         switch (c) {
-            case 'w':
-            case 'W':
-                injectButtonPress(Button::UP);
-                break;
-            case 's':
-            case 'S':
-                injectButtonPress(Button::DOWN);
-                break;
-            case 'a':
-            case 'A':
-                injectButtonPress(Button::LEFT);
-                break;
-            case 'd':
-            case 'D':
-                injectButtonPress(Button::RIGHT);
-                break;
-            case '\r':
-            case '\n':
-            case ' ':
-                injectButtonPress(Button::A);
-                break;
-            case 'b':
-            case 'B':
-            case 0x08:
-            case 0x7F:
-                injectButtonPress(Button::B);
-                break;
-            case 'q':
-            case 'Q':
-                injectButtonPress(Button::SELECT);
-                break;
-            case 'e':
-            case 'E':
-                injectButtonPress(Button::START);
-                break;
-            case 'c':
-            case 'C':
-                injectButtonPress(Button::C);
-                break;
-            case 'v':
-            case 'V':
-                injectButtonPress(Button::D);
-                break;
+            case 'w': case 'W': injectButtonPress(Button::UP); break;
+            case 's': case 'S': injectButtonPress(Button::DOWN); break;
+            case 'a': case 'A': injectButtonPress(Button::LEFT); break;
+            case 'd': case 'D': injectButtonPress(Button::RIGHT); break;
+            case '\r': case '\n': case ' ': injectButtonPress(Button::A); break;
+            case 'b': case 'B': case 0x08: case 0x7F: injectButtonPress(Button::B); break;
+            case 'q': case 'Q': injectButtonPress(Button::SELECT); break;
+            case 'e': case 'E': injectButtonPress(Button::START); break;
+            case 'c': case 'C': injectButtonPress(Button::C); break;
+            case 'v': case 'V': injectButtonPress(Button::D); break;
         }
     }
 }
 #endif // LILKA_SERIAL_CONTROLLER
-
 } // namespace lilka

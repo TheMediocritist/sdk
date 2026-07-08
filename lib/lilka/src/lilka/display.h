@@ -261,6 +261,20 @@ public:
     }
 };
 
+/// Present-time strategy for pushing framebuffer changes to the panel.
+enum class DirtyMode : uint8_t {
+    /// Every present() pushes the full frame. Default: preserves legacy
+    /// behavior for apps that don't participate in dirty tracking.
+    Full,
+    /// present() pushes only the accumulated dirty rect (or nothing if
+    /// none). Caller must markDirty() honestly.
+    Tracked,
+    /// Tracked mode, plus draw calls into the Display auto-markDirty their
+    /// affected region. Good for Keira apps that draw directly to the
+    /// display; Canvas drawing is still tracked at drawCanvas() granularity.
+    Auto,
+};
+
 class Display : public MonoCanvas, public GFX<Display> {
 public:
     Display();
@@ -278,11 +292,50 @@ public:
     void drawCanvas(Canvas* canvas);
     /// На ST7305 черезрядкове малювання не має сенсу - просто drawCanvas.
     void drawCanvasInterlaced(Canvas* canvas, bool odd);
-    /// Виштовхнути власний буфер дисплея на панель (repack + TE + SPI).
+    /// Виштовхнути буфер: у Full режимі - весь кадр; у Tracked/Auto -
+    /// лише брудну область (або нічого).
     void present();
-    /// Періодичний авто-present для коду, що малює прямо на дисплеї.
-    /// 0 = вимкнено. Типово 100 мс.
+    /// Періодичний авто-present.  0 = вимкнено. Типово 100 мс.
     void setAutoPresent(uint32_t intervalMs);
+
+    // --- Dirty rect API -----------------------------------------------------
+
+    void setDirtyMode(DirtyMode mode) {
+        dirtyMode = mode;
+    }
+    DirtyMode getDirtyMode() const {
+        return dirtyMode;
+    }
+
+    /// Mark a screen region as needing to be pushed on next present().
+    /// Pixel coordinates. Off-screen portions are clipped. Multiple calls
+    /// accumulate into a single union rectangle. In DirtyMode::Full this
+    /// call is a no-op (present always pushes the full frame anyway).
+    void markDirty(int16_t x, int16_t y, int16_t w, int16_t h);
+
+    /// Convenience: mark the whole screen dirty.
+    void markFullDirty() {
+        markDirty(0, 0, width(), height());
+    }
+
+    /// Get the current dirty rect (pixel coords, block-aligned outward).
+    /// Returns false if nothing dirty.
+    bool getDirtyRect(int16_t* x, int16_t* y, int16_t* w, int16_t* h) const;
+
+    /// Clear the dirty accumulator without presenting. Rarely useful; mostly
+    /// for tests. present() clears it after a successful push.
+    void clearDirty();
+
+    /// Draw calls to `Display` route through this override, which optionally
+    /// auto-marks the dirty rect (DirtyMode::Auto).
+    void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) override;
+    void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override;
+
+    /// Convenience for the "don't clear every frame" pattern: legal to call
+    /// in Full mode too (behaves like fillScreen). In Tracked/Auto, this
+    /// does NOT clear or mark dirty - it's just a no-op reminder that the
+    /// caller is opting out of the clear-every-frame pattern.
+    void fillScreenTracked(uint16_t color);
 
 private:
     static void presentTask(void* arg);
@@ -291,6 +344,10 @@ private:
     SemaphoreHandle_t presentMutex = NULL;
     volatile uint32_t autoPresentMs = 100;
     TaskHandle_t presentTaskHandle = NULL;
+
+    // Dirty rect union in pixel coords. Empty when dirtyW == 0.
+    int16_t dirtyX = 0, dirtyY = 0, dirtyW = 0, dirtyH = 0;
+    DirtyMode dirtyMode = DirtyMode::Full;
 };
 
 

@@ -27,6 +27,22 @@ public:
     // This is Arduino_Canvas_Mono's horizontal framebuffer layout.
     void pushFrame(const uint8_t* src);
 
+    /// Push a subregion of the framebuffer only. Coordinates are in the
+    /// panel's 2x4-block grid (x, w are in blocks of 2 pixels; y, h in
+    /// blocks of 4 pixels). Caller is responsible for rounding pixel
+    /// rectangles outward - see ST7305::alignRectToBlocks().
+    /// Uses a small stack buffer + windowed write. Assumes TE sync setup
+    /// same as pushFrame.
+    void pushPartial(const uint8_t* src, int bx, int by, int bw, int bh);
+
+    /// Round pixel rect (x, y, w, h) outward to the 2x4 block grid, in place.
+    /// After call, x/y are top-left pixel of the containing block, w/h are
+    /// pixel dimensions covering all touched blocks. Returns block-space
+    /// coords in bx/by/bw/bh (each pixel-w/2, pixel-h/4).
+    void alignRectToBlocks(
+        int16_t& x, int16_t& y, int16_t& w, int16_t& h, int& bx, int& by, int& bw, int& bh
+    ) const;
+
     void clear(bool white);
 
     // Sync pushFrame to the panel's tearing-effect pulse.
@@ -45,7 +61,9 @@ private:
     void data(uint8_t d);
     void sendPacked();
     void setWindow();
+    void setWindowBlocks(int bx, int by, int bw, int bh);
     void repack(const uint8_t* src);
+    void repackPartial(const uint8_t* src, int bx, int by, int bw, int bh, uint8_t* dst);
     void waitTE();
 
     esp_lcd_panel_io_handle_t io_ = nullptr;

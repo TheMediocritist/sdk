@@ -154,13 +154,43 @@ void ST7305::data(uint8_t d) {
     esp_lcd_panel_io_tx_param(io_, -1, &d, 1);
 }
 
+// The panel's window uses controller-native column and page addresses,
+// NOT pixel coordinates. From Waveshare's BSP: cols 0x12..0x2A cover the
+// full 200 output bytes width (400 px / 2 px per byte-column), and pages
+// 0x00..0xC7 cover the full 200 output bytes height (300 px / 4 px per
+// page-row). So the mapping is:
+//   column addr N covers block-columns [(N-0x12)*8 .. (N-0x12)*8 + 7]
+//   page addr N covers block-row N
+// One column address = 8 block-columns = 16 pixels wide. So we round the
+// block-column range outward to multiples of 8 when programming the window.
+static inline uint8_t colAddrForBlockCol(int bx) {
+    return 0x12 + (bx / 8);
+}
+static inline uint8_t pageAddrForBlockRow(int by) {
+    return 0x00 + by;
+}
+
 void ST7305::setWindow() {
-    cmd(0x2A); // Column Address Set
+    // Full screen: cols 0x12..0x2A, pages 0x00..0xC7.
+    cmd(0x2A);
     data(0x12);
     data(0x2A);
-    cmd(0x2B); // Page Address Set
+    cmd(0x2B);
     data(0x00);
     data(0xC7);
+}
+
+void ST7305::setWindowBlocks(int bx, int by, int bw, int bh) {
+    // Round bx/bw outward to the 8-block column-address granularity.
+    int bxEnd = bx + bw - 1;
+    int colStart = bx / 8;
+    int colEnd = bxEnd / 8;
+    cmd(0x2A);
+    data(0x12 + colStart);
+    data(0x12 + colEnd);
+    cmd(0x2B);
+    data(pageAddrForBlockRow(by));
+    data(pageAddrForBlockRow(by + bh - 1));
 }
 
 void ST7305::sendPacked() {
@@ -202,6 +232,85 @@ void ST7305::repack(const uint8_t* src) {
             *out++ = b;
         }
     }
+}
+
+void ST7305::alignRectToBlocks(
+    int16_t& x, int16_t& y, int16_t& w, int16_t& h, int& bx, int& by, int& bw, int& bh
+) const {
+    // Round x down to even, y down to multiple of 4.
+    int16_t x2 = x + w;
+    int16_t y2 = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x2 > width_) x2 = width_;
+    if (y2 > height_) y2 = height_;
+    x &= ~1;
+    y &= ~3;
+    x2 = (x2 + 1) & ~1;
+    y2 = (y2 + 3) & ~3;
+    if (x2 > width_) x2 = width_;
+    if (y2 > height_) y2 = height_;
+    w = x2 - x;
+    h = y2 - y;
+    bx = x / 2;
+    by = y / 4;
+    bw = w / 2;
+    bh = h / 4;
+}
+
+// Repack a block-space subrange of the source framebuffer into 'dst'.
+// Output layout: within the block-column range, packed the same way as
+// the full-frame repack - each byte holds 4 block-rows of one block-column,
+// consecutive bytes advance in block-rows, then block-columns.
+// dst must be at least bw * bh bytes.
+void ST7305::repackPartial(const uint8_t* src, int bx, int by, int bw, int bh, uint8_t* dst) {
+    const int stride = (width_ + 7) / 8;
+    // The full-frame packing iterates block-cols 0..W/2-1 outer, block-rows
+    // 0..H/4-1 inner. A partial push we send to the panel must cover the
+    // WINDOW the setWindowBlocks() call opened - which is the full 8-block
+    // width of every touched column address, and every page row in bh.
+    // So we still gather bw contiguous block-columns (aligned outward
+    // by the caller if needed), bh contiguous block-rows.
+    for (int bcx = 0; bcx < bw; bcx++) {
+        const int panelBx = bx + bcx;
+        const int px = panelBx * 2;
+        const int srcByte = px >> 3;
+        const int shift = 6 - (px & 6);
+        for (int bcy = 0; bcy < bh; bcy++) {
+            const int panelBy = by + bcy;
+            const int y0 = height_ - 1 - panelBy * 4;
+            uint8_t b = 0;
+            b |= ((src[y0 * stride + srcByte] >> shift) & 0x3) << 6;
+            b |= ((src[(y0 - 1) * stride + srcByte] >> shift) & 0x3) << 4;
+            b |= ((src[(y0 - 2) * stride + srcByte] >> shift) & 0x3) << 2;
+            b |= (src[(y0 - 3) * stride + srcByte] >> shift) & 0x3;
+            *dst++ = b;
+        }
+    }
+}
+
+void ST7305::pushPartial(const uint8_t* src, int bx, int by, int bw, int bh) {
+    // Round bx/bw outward to the column-address 8-block granularity, since
+    // that's what setWindowBlocks() actually opens on the panel. If we
+    // didn't do this, we'd send data for a narrower range than the window
+    // expects and get garbage or offset writes.
+    const int bxAligned = (bx / 8) * 8;
+    const int bxEnd = ((bx + bw + 7) / 8) * 8;
+    const int bwAligned = bxEnd - bxAligned;
+    if (bwAligned <= 0 || bh <= 0) return;
+
+    // Buffer: worst-case a full frame (15000 bytes) if caller marks all
+    // dirty. Allocate from packed_ scratch: the full-frame packed_ is our
+    // guaranteed DMA-capable buffer, and pushPartial and pushFrame are
+    // mutually exclusive (both called from Display::present under the
+    // presentMutex), so reusing it is safe.
+    const int len = bwAligned * bh;
+    repackPartial(src, bxAligned, by, bwAligned, bh, packed_);
+
+    setWindowBlocks(bxAligned, by, bwAligned, bh);
+    cmd(0x2C);
+    if (teSync_) waitTE();
+    esp_lcd_panel_io_tx_color(io_, -1, packed_, len);
 }
 
 void ST7305::pushFrame(const uint8_t* src) {
