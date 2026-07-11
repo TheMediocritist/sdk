@@ -25,7 +25,7 @@ static void drawMonoCanvasTran(
 
 namespace lilka {
 
-#define MENU_HEIGHT 9
+#define MENU_HEIGHT 7
 
 #define MIN(a, b)   ((a) < (b) ? (a) : (b))
 
@@ -199,12 +199,18 @@ void Menu::draw(Arduino_GFX* canvas) {
         canvas->println(title);
     }
 
-    canvas->fillRect(
-        0,
+    // Highlight rect for selected item
+    constexpr int16_t highlightRadius = 7;
+    // uint16_t itemWidth = getTextWidth(FONT_6x13, title.c_str());
+    canvas->fillRoundRect(
+        iconWidth,
         (cursor * itemHeight + itemsY - 20) - scroll * itemHeight,
-        canvas->width() - (needsScrollbar ? scrollbarWidth : 0),
+        // ((titleWidth > titleWidthAvailable) ? titleWidthAvailable : titleWidth),
+        // ((titleWidth > titleWidthAvailable) ? titleWidthAvailable : titleWidth),
+        canvas->width() - iconWidth - (needsScrollbar ? scrollbarWidth : 0) - 8,
         itemHeight,
-        lilka::colors::Orange_red
+        highlightRadius,
+        lilka::colors::White
     );
 
     for (int i = scroll; i < MIN(scroll + MENU_HEIGHT, menu_size); i++) {
@@ -214,15 +220,13 @@ void Menu::draw(Arduino_GFX* canvas) {
         if (icon) {
             if (cursor == i) {
                 memcpy(iconImage->pixels, *icon, sizeof(menu_icon_t));
-                // Transform t = Transform().rotate(millis() * 30);
-                // Transform t = Transform().rotate(sin((micros()/1000.0f - lastCursorMove) * PI / 1000) * 30);
                 float elapsedMs = (micros() - lastCursorMoveUs) * 0.001f;
                 Transform t = Transform().rotate(sinf(elapsedMs * PI / 1000.0f) * 3.0f);
                 iconCanvas->fillScreen(bgColor);
                 iconCanvas->drawImageTransformed(iconImage, 12, 12, t);
                 drawMonoCanvasTran(
                     canvas, iconCanvas, 0, itemsY + screenI * itemHeight - 20, menu_icon_width, menu_icon_height,
-                    lilka::colors::White
+                    lilka::colors::Black
                 );
             } else {
                 canvas->draw16bitRGBBitmapWithTranColor(
@@ -251,7 +255,7 @@ void Menu::draw(Arduino_GFX* canvas) {
             canvas->setTextBound(0, 0, canvas->width(), canvas->height());
             canvas->getTextBounds(items[i].postfix, 0, 0, &x1, &y1, &postfixWidth, &h);
             canvas->setCursor(
-                canvas->width() - postfixWidth - scrollbarWidth - scrollbarLeftPadding, itemsY + screenI * itemHeight
+                canvas->width() - 10 - postfixWidth - scrollbarWidth - scrollbarLeftPadding, itemsY - 2 + screenI * itemHeight 
             );
             canvas->println(items[i].postfix);
         }
@@ -282,7 +286,7 @@ void Menu::draw(Arduino_GFX* canvas) {
             // Text fits
             canvas->setTextSize(1);
             canvas->setFont(FONT_10x20);
-            canvas->setCursor(iconWidth, itemsY + screenI * itemHeight);
+            canvas->setCursor(iconWidth + 6, itemsY + screenI * itemHeight - 2);
             canvas->setTextBound(iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight);
             if (cursor == i) {
                 // Mono: invert against the white highlight bar
@@ -318,6 +322,7 @@ bool Menu::isFinished() {
 int16_t Menu::getCursor() {
     return cursor;
 }
+
 void Menu::setColor(uint16_t color) {
     this->color = color;
     // Idea is actually almost incredible, a single problem is that we can't mention default
@@ -326,6 +331,7 @@ void Menu::setColor(uint16_t color) {
     //     item.color = color;
     // }
 }
+
 void Menu::setBackgroundColor(uint16_t color) {
     this->bgColor = color;
 }
@@ -341,6 +347,7 @@ bool Menu::setItem(int16_t index, const String& title, const menu_icon_t* icon, 
         return true;
     }
 }
+
 bool Menu::getItem(int16_t index, MenuItem* menuItem) {
     if ((menuItem == NULL) || index > items.size() - 1 || index < 0) {
         return false;
@@ -349,13 +356,16 @@ bool Menu::getItem(int16_t index, MenuItem* menuItem) {
         return true;
     }
 }
+
 void Menu::clearItems() {
     setCursor(0);
     items.clear();
 }
+
 int16_t Menu::getItemCount() {
     return items.size();
 }
+
 void Menu::addActivationButton(Button activationButton) {
     // Handle if button already added
     if (std::find(activationButtons.begin(), activationButtons.end(), activationButton) != activationButtons.end())
@@ -363,6 +373,7 @@ void Menu::addActivationButton(Button activationButton) {
 
     activationButtons.push_back(activationButton);
 }
+
 void Menu::removeActivationButton(Button activationButton) {
     activationButtons.erase(
         std::remove(activationButtons.begin(), activationButtons.end(), activationButton), activationButtons.end()
