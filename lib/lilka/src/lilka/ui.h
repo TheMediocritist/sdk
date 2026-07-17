@@ -11,6 +11,7 @@
 
 constexpr uint16_t menu_icon_width = 24;
 constexpr uint16_t menu_icon_height = 24;
+constexpr uint16_t menu_item_height = 28;
 typedef uint16_t const menu_icon_t[menu_icon_width * menu_icon_height]; // 24x24px icon (576*2 bytes)
 
 namespace lilka {
@@ -81,7 +82,7 @@ public:
     /// @param callback Вказівник на функцію яку буде викликано при закритті меню.
     /// @param callbackData Дані які буде передано в callback функцію
     void addItem(
-        const String& title, const menu_icon_t* icon = 0, uint16_t color = lilka::colors::White,
+        const String& title, const menu_icon_t* icon = 0, uint16_t color = lilka::colors::Black,
         const String& postfix = "", PMenuItemCallback callback = NULL, void* callbackData = NULL
     );
 
@@ -157,8 +158,8 @@ public:
     Button getButton();
 
 private:
-    uint16_t color = lilka::colors::White;
-    uint16_t bgColor = lilka::colors::Black;
+    uint16_t color = lilka::colors::Black;
+    uint16_t bgColor = lilka::colors::White;
     int16_t cursor;
     int16_t scroll;
     String title;

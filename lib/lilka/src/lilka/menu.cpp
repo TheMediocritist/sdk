@@ -1,6 +1,5 @@
 #include "ui.h"
 
-
 // Mono port: composite a 1bpp canvas onto any GFX target with color-key
 // semantics. Pixels whose mono bit differs from the (thresholded) background
 // are drawn; matching pixels are skipped, like the old transparent-color draw.
@@ -25,7 +24,7 @@ static void drawMonoCanvasTran(
 
 namespace lilka {
 
-#define MENU_HEIGHT 7
+#define MENU_HEIGHT 6
 
 #define MIN(a, b)   ((a) < (b) ? (a) : (b))
 
@@ -156,14 +155,15 @@ void Menu::draw(Arduino_GFX* canvas) {
     constexpr int16_t iconWidth = 32;
     constexpr int16_t titleTextHeight = 40;
     constexpr int16_t itemsY = 80;
-    constexpr int16_t itemHeight = menu_icon_height;
+    constexpr int16_t itemHeight = menu_item_height;
     uint16_t menu_size = items.size();
     const bool needsScrollbar = menu_size > MENU_HEIGHT;
 
+    // Clear screen and draw graphical decorations
     canvas->fillScreen(bgColor);
     int8_t angleShift = sin(millis() / 1000.0) * 16;
     // Draw triangle in top-left
-    canvas->fillTriangle(0, 0, 48 - angleShift, 0, 0, 48 + angleShift, lilka::colors::Blue);
+    canvas->fillTriangle(0, 0, 48 - angleShift, 0, 0, 48 + angleShift, lilka::colors::Black);
     // Draw triangle in top-right
     canvas->fillTriangle(
         canvas->width(),
@@ -172,9 +172,10 @@ void Menu::draw(Arduino_GFX* canvas) {
         0,
         canvas->width(),
         48 - angleShift,
-        lilka::colors::Yellow
+        lilka::colors::Black
     );
 
+    // Draw title text
     const uint16_t titleWidth = getTextWidth(FONT_6x13, title.c_str()) * 2;
     const uint16_t titleWidthAvailable = canvas->width() - 64;
     if (titleWidth > titleWidthAvailable) {
@@ -186,7 +187,7 @@ void Menu::draw(Arduino_GFX* canvas) {
         marquee.setCursor(
             calculateMarqueeShift(millis() - firstRender, titleWidth - titleWidthAvailable, 50), titleTextHeight
         );
-        marquee.setTextColor(this->color);
+        marquee.setTextColor(lilka::colors::Black);
         marquee.println(title);
         drawMonoCanvasTran(canvas, &marquee, 32, 0, marquee.width(), marquee.height(), bgColor);
     } else {
@@ -194,74 +195,84 @@ void Menu::draw(Arduino_GFX* canvas) {
         canvas->setFont(FONT_6x13);
         canvas->setTextSize(2);
         canvas->setCursor(32, 40);
-        canvas->setTextColor(this->color);
+        canvas->setTextColor(lilka::colors::Black);
         canvas->setTextBound(32, 8, titleWidthAvailable, titleTextHeight);
         canvas->println(title);
     }
 
-    // Highlight rect for selected item
+    // Highlight selected item
     constexpr int16_t highlightRadius = 7;
-    // uint16_t itemWidth = getTextWidth(FONT_6x13, title.c_str());
     canvas->fillRoundRect(
-        iconWidth,
-        (cursor * itemHeight + itemsY - 20) - scroll * itemHeight,
-        // ((titleWidth > titleWidthAvailable) ? titleWidthAvailable : titleWidth),
-        // ((titleWidth > titleWidthAvailable) ? titleWidthAvailable : titleWidth),
-        canvas->width() - iconWidth - (needsScrollbar ? scrollbarWidth : 0) - 8,
+        32,
+        (cursor - scroll) * itemHeight + (itemsY - itemHeight) - 0.5 * (itemHeight - menu_icon_height),
+        titleWidthAvailable,
         itemHeight,
         highlightRadius,
-        lilka::colors::White
+        lilka::colors::Black
     );
 
+    // Draw item icons and text
     for (int i = scroll; i < MIN(scroll + MENU_HEIGHT, menu_size); i++) {
         int16_t screenI = i - scroll;
         const menu_icon_t* icon = items[i].icon;
-        canvas->setTextBound(0, itemsY + screenI * itemHeight - 20, canvas->width(), itemHeight);
+        canvas->setTextBound(0, itemsY + screenI * itemHeight - itemHeight, canvas->width(), itemHeight);
+        
+        
+        // Draw icon if it exists
         if (icon) {
+            memcpy(iconImage->pixels, *icon, sizeof(menu_icon_t));
             if (cursor == i) {
-                memcpy(iconImage->pixels, *icon, sizeof(menu_icon_t));
+                // invert icon
+                const uint8_t* src = reinterpret_cast<const uint8_t*>(*icon);
+                uint8_t* dst = reinterpret_cast<uint8_t*>(iconImage->pixels);
+                std::transform(src, src + sizeof(menu_icon_t), dst, [](uint8_t b) { return static_cast<uint8_t>(~b); });
+                
+                // add rotation animation to icon
                 float elapsedMs = (micros() - lastCursorMoveUs) * 0.001f;
                 Transform t = Transform().rotate(sinf(elapsedMs * PI / 1000.0f) * 3.0f);
-                iconCanvas->fillScreen(bgColor);
+                iconCanvas->fillScreen(lilka::colors::White);
                 iconCanvas->drawImageTransformed(iconImage, 12, 12, t);
                 drawMonoCanvasTran(
-                    canvas, iconCanvas, 0, itemsY + screenI * itemHeight - 20, menu_icon_width, menu_icon_height,
+                    canvas, iconCanvas, 36, itemsY + screenI * itemHeight - itemHeight, menu_icon_width, menu_icon_height,
                     lilka::colors::Black
                 );
             } else {
                 canvas->draw16bitRGBBitmapWithTranColor(
-                    0,
-                    itemsY + screenI * itemHeight - 20,
+                    34,
+                    itemsY + screenI * itemHeight - itemHeight,
                     const_cast<uint16_t*>(*icon),
-                    bgColor,
+                    lilka::colors::White,
                     menu_icon_width,
                     menu_icon_height
                 );
             }
         }
 
+        // Draw item title, inverting text for current item
+        canvas->setTextColor(cursor == i ? lilka::colors::White : lilka::colors::Black);
+        
         uint16_t postfixWidth = 0;
         if (items[i].postfix.length()) {
             canvas->setTextSize(1);
             canvas->setFont(FONT_10x20);
-            // Mono: the highlight bar thresholds to white, so invert cursor-row text
-            canvas->setTextColor(cursor == i ? lilka::colors::Black : this->color);
+            
             // Calculate postfix width
             int16_t x1, y1;
             uint16_t h;
             (void)x1;
             (void)y1;
             (void)h;
-            canvas->setTextBound(0, 0, canvas->width(), canvas->height());
+            canvas->setTextBound(32, 0, canvas->width(), canvas->height());
             canvas->getTextBounds(items[i].postfix, 0, 0, &x1, &y1, &postfixWidth, &h);
             canvas->setCursor(
-                canvas->width() - 10 - postfixWidth - scrollbarWidth - scrollbarLeftPadding, itemsY - 2 + screenI * itemHeight 
+                canvas->width() - 38 - postfixWidth - postfixLeftPadding, itemsY + screenI * itemHeight - 10
             );
             canvas->println(items[i].postfix);
         }
 
         int16_t widthAvailable =
-            canvas->width() - iconWidth - postfixWidth - scrollbarWidth - scrollbarLeftPadding - postfixLeftPadding;
+            // canvas->width() - 64 - postfixWidth - postfixLeftPadding;
+            canvas->width() - 64 - postfixWidth - postfixLeftPadding;
         if (widthAvailable < 0) {
             // No space for title
             continue;
@@ -269,31 +280,24 @@ void Menu::draw(Arduino_GFX* canvas) {
 
         uint16_t nameWidth = getTextWidth(FONT_10x20, items[i].title.c_str()) + 1;
         if (nameWidth > widthAvailable && cursor == i) {
-            // Marquee
+
+            // Marquee - only exists on cursor row, so render black-on-white
             Canvas marquee(widthAvailable, itemHeight);
-            // Mono: this marquee only exists on the cursor row, whose highlight
-            // bar thresholds to white - so render black-on-white.
-            marquee.fillScreen(lilka::colors::White);
+            marquee.fillScreen(lilka::colors::Black);
             marquee.setFont(FONT_10x20);
-            marquee.setCursor(calculateMarqueeShift(micros() - lastCursorMoveUs, nameWidth - widthAvailable, 50), 20);
-            marquee.setTextColor(lilka::colors::Black);
+            marquee.setCursor(calculateMarqueeShift(millis() - lastCursorMoveUs, nameWidth - widthAvailable, 50), itemHeight);
+            marquee.setTextColor(lilka::colors::White);
             marquee.println(items[i].title);
             drawMonoCanvasTran(
-                canvas, &marquee, iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight,
-                lilka::colors::White
+                canvas, &marquee, 68, itemsY + screenI * itemHeight - itemHeight - 10, widthAvailable, marquee.height(),
+                lilka::colors::Black
             );
         } else {
             // Text fits
             canvas->setTextSize(1);
             canvas->setFont(FONT_10x20);
-            canvas->setCursor(iconWidth + 6, itemsY + screenI * itemHeight - 2);
+            canvas->setCursor(38+iconWidth, itemsY + screenI * itemHeight - 10);
             canvas->setTextBound(iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight);
-            if (cursor == i) {
-                // Mono: invert against the white highlight bar
-                canvas->setTextColor(lilka::colors::Black);
-            } else if (true) {
-                canvas->setTextColor(items[i].color);
-            }
             canvas->println(items[i].title);
         }
     }
@@ -302,12 +306,12 @@ void Menu::draw(Arduino_GFX* canvas) {
     if (needsScrollbar) {
         int top = itemsY - 20;
         int height = MENU_HEIGHT * itemHeight;
-        canvas->fillRect(canvas->width() - 5, top, 2, height, this->color);
-        canvas->fillRect(canvas->width() - 8, top, 8, 2, this->color);
-        canvas->fillRect(canvas->width() - 8, top + height - 2, 8, 2, this->color);
+        canvas->fillRect(canvas->width() - 13, top, 2, height, lilka::colors::Black);
+        canvas->fillRect(canvas->width() - 16, top, 8, 2, lilka::colors::Black);
+        canvas->fillRect(canvas->width() - 16, top + height - 2, 8, 2, lilka::colors::Black);
         int barHeight = height * MENU_HEIGHT / menu_size;
         int barTop = top + scroll * height / menu_size;
-        canvas->fillRect(canvas->width() - 8, barTop, 8, barHeight, this->color);
+        canvas->fillRect(canvas->width() - 16, barTop, 8, barHeight, lilka::colors::Black);
     }
 }
 
