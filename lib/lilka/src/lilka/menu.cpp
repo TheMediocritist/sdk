@@ -153,36 +153,36 @@ void Menu::draw(Arduino_GFX* canvas) {
     constexpr int16_t scrollbarLeftPadding = 4;
     constexpr int16_t postfixLeftPadding = 4;
     constexpr int16_t iconWidth = 32;
-    constexpr int16_t titleTextHeight = 40;
-    constexpr int16_t itemsY = 80;
+    constexpr int16_t titleTextHeight = 32;
+    constexpr int16_t itemsY = 64;
     constexpr int16_t itemHeight = menu_item_height;
     uint16_t menu_size = items.size();
     const bool needsScrollbar = menu_size > MENU_HEIGHT;
 
     // Clear screen and draw graphical decorations
     canvas->fillScreen(bgColor);
-    int8_t angleShift = sin(millis() / 1000.0) * 16;
-    // Draw triangle in top-left
-    canvas->fillTriangle(0, 0, 48 - angleShift, 0, 0, 48 + angleShift, lilka::colors::Black);
-    // Draw triangle in top-right
-    canvas->fillTriangle(
-        canvas->width(),
-        0,
-        canvas->width() - 48 - angleShift,
-        0,
-        canvas->width(),
-        48 - angleShift,
-        lilka::colors::Black
-    );
+    // int8_t angleShift = sin(millis() / 1000.0) * 16;
+    // // Draw triangle in top-left
+    // canvas->fillTriangle(0, 0, 48 - angleShift, 0, 0, 48 + angleShift, lilka::colors::Black);
+    // // Draw triangle in top-right
+    // canvas->fillTriangle(
+    //     canvas->width(),
+    //     0,
+    //     canvas->width() - 48 - angleShift,
+    //     0,
+    //     canvas->width(),
+    //     48 - angleShift,
+    //     lilka::colors::Black
+    // );
 
     // Draw title text
-    const uint16_t titleWidth = getTextWidth(FONT_6x13, title.c_str()) * 2;
+    const uint16_t titleWidth = getTextWidth(FONT_5x7, title.c_str()) * 2;
     const uint16_t titleWidthAvailable = canvas->width() - 64;
     if (titleWidth > titleWidthAvailable) {
         // Marquee
         Canvas marquee(titleWidthAvailable, titleTextHeight + 8);
         marquee.fillScreen(bgColor);
-        marquee.setFont(FONT_6x13);
+        marquee.setFont(FONT_5x7);
         marquee.setTextSize(2);
         marquee.setCursor(
             calculateMarqueeShift(millis() - firstRender, titleWidth - titleWidthAvailable, 50), titleTextHeight
@@ -192,7 +192,7 @@ void Menu::draw(Arduino_GFX* canvas) {
         drawMonoCanvasTran(canvas, &marquee, 32, 0, marquee.width(), marquee.height(), bgColor);
     } else {
         // Text fits
-        canvas->setFont(FONT_6x13);
+        canvas->setFont(FONT_5x7);
         canvas->setTextSize(2);
         canvas->setCursor(32, 40);
         canvas->setTextColor(lilka::colors::Black);
@@ -253,8 +253,8 @@ void Menu::draw(Arduino_GFX* canvas) {
         
         uint16_t postfixWidth = 0;
         if (items[i].postfix.length()) {
-            canvas->setTextSize(1);
-            canvas->setFont(FONT_10x20);
+            canvas->setTextSize(2);
+            canvas->setFont(FONT_5x7);
             
             // Calculate postfix width
             int16_t x1, y1;
@@ -262,42 +262,44 @@ void Menu::draw(Arduino_GFX* canvas) {
             (void)x1;
             (void)y1;
             (void)h;
-            canvas->setTextBound(32, 0, canvas->width(), canvas->height());
+            canvas->setTextBound(70, 0, canvas->width(), canvas->height());
             canvas->getTextBounds(items[i].postfix, 0, 0, &x1, &y1, &postfixWidth, &h);
             canvas->setCursor(
-                canvas->width() - 38 - postfixWidth - postfixLeftPadding, itemsY + screenI * itemHeight - 10
+                canvas->width() - postfixWidth - postfixLeftPadding - 4, itemsY + screenI * itemHeight - 10
             );
             canvas->println(items[i].postfix);
         }
 
-        int16_t widthAvailable =
-            // canvas->width() - 64 - postfixWidth - postfixLeftPadding;
-            canvas->width() - 64 - postfixWidth - postfixLeftPadding;
+        int16_t widthAvailable = canvas->width() - 78 - postfixWidth - postfixLeftPadding;
         if (widthAvailable < 0) {
             // No space for title
             continue;
         }
 
-        uint16_t nameWidth = getTextWidth(FONT_10x20, items[i].title.c_str()) + 1;
+        uint16_t nameWidth = (getTextWidth(FONT_5x7, items[i].title.c_str()) + 1) * 2;
         if (nameWidth > widthAvailable && cursor == i) {
-
             // Marquee - only exists on cursor row, so render black-on-white
             Canvas marquee(widthAvailable, itemHeight);
             marquee.fillScreen(lilka::colors::Black);
-            marquee.setFont(FONT_10x20);
-            marquee.setCursor(calculateMarqueeShift(millis() - lastCursorMoveUs, nameWidth - widthAvailable, 50), itemHeight);
+            marquee.setFont(FONT_5x7);
+            marquee.setTextSize(2);
+            marquee.setTextWrap(false);
+            marquee.setCursor(calculateMarqueeShift(millis() - lastCursorMoveUs, nameWidth - widthAvailable, 50), 20);
             marquee.setTextColor(lilka::colors::White);
             marquee.println(items[i].title);
+            drawMonoCanvasTran(canvas, &marquee, 70, 10, widthAvailable, itemHeight,
+                lilka::colors::Red);
             drawMonoCanvasTran(
-                canvas, &marquee, 68, itemsY + screenI * itemHeight - itemHeight - 10, widthAvailable, marquee.height(),
+                canvas, &marquee, 70, itemsY + (screenI - 1) * itemHeight - 0.5 * (itemHeight - menu_icon_height), widthAvailable, marquee.height(),
                 lilka::colors::Black
             );
         } else {
-            // Text fits
-            canvas->setTextSize(1);
-            canvas->setFont(FONT_10x20);
+            // Draw text if fits otherwise truncate
+            canvas->setTextSize(2);
+            canvas->setFont(FONT_5x7);
             canvas->setCursor(38+iconWidth, itemsY + screenI * itemHeight - 10);
-            canvas->setTextBound(iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable, itemHeight);
+            canvas->setTextWrap(false);
+            canvas->setTextBound(iconWidth, itemsY + screenI * itemHeight - 20, widthAvailable + 40, itemHeight);
             canvas->println(items[i].title);
         }
     }
