@@ -268,7 +268,7 @@ const String FileUtils::getHumanFriendlySize(const uint64_t size, bool compact) 
     if (compact) {
         snprintf(buffer, sizeof(buffer), "%.0Lf%s", dsize, suffixes[exp]);
     } else {
-        snprintf(buffer, sizeof(buffer), "%.0Lf %2s", dsize, suffixes[exp]);
+        snprintf(buffer, sizeof(buffer), "%.0Lf %s", dsize, suffixes[exp]);
     }
 
     return String(buffer);
